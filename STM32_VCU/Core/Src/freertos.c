@@ -6,14 +6,13 @@
   ******************************************************************************
   */
 /* USER CODE END Header */
-
 #include "FreeRTOS.h"
 #include "task.h"
 #include "main.h"
 #include "cmsis_os.h"
 
 /* USER CODE BEGIN Includes */
-#include "OLED.h"
+#include "oled.h"
 #include <string.h>
 #include <stdio.h>
 extern UART_HandleTypeDef huart1;
@@ -37,6 +36,14 @@ typedef struct {
 
 static BmsData_t g_bms_data = {0};
 static osMutexId_t g_bms_mutex;
+
+// ´®¿ÚÖĞ¶Ï»·ĞÎ»º³å
+#define UART_RING_BUF_SIZE 256
+static uint8_t uart_ring_buf[UART_RING_BUF_SIZE];
+static volatile uint16_t wr_idx = 0;
+static volatile uint16_t rd_idx = 0;
+static uint8_t parse_buf[15];
+static uint8_t it_rx_ch;  // ÖĞ¶Ï½ÓÊÕ¾²Ì¬»º´æ£¬½ûÖ¹¾Ö²¿±äÁ¿
 /* USER CODE END Variables */
 
 /* Definitions for tasks and queue */
@@ -84,19 +91,30 @@ void StartTask_Resp(void *argument);
 
 void MX_FREERTOS_Init(void);
 
-void MX_FREERTOS_Init(void) {
+void MX_FREERTOS_Init(void)
+{
+  /* USER CODE BEGIN 2 */
   g_bms_mutex = osMutexNew(NULL);
-  MsgQueueHandle = osMessageQueueNew(10, sizeof(CanMsgTypeDef), &MsgQueue_attributes);
+  /* USER CODE END 2 */
+
+  MsgQueueHandle = osMessageQueueNew(32, sizeof(CanMsgTypeDef), &MsgQueue_attributes);
 
   defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
   Task_MonitorHandle = osThreadNew(StartTask_Monitor, NULL, &Task_Monitor_attributes);
   Task_RecvMsgHandle = osThreadNew(StartTask_RecvMsg, NULL, &Task_RecvMsg_attributes);
   Task_BMS_ProcesHandle = osThreadNew(StartTask_BMS_Process, NULL, &Task_BMS_Proces_attributes);
   Task_RespHandle = osThreadNew(StartTask_Resp, NULL, &Task_Resp_attributes);
+
+  /* USER CODE BEGIN 3 */
+  // Æô¶¯´®¿Úµ¥×Ö½ÚÖĞ¶Ï½ÓÊÕ£¬Ê¹ÓÃ¾²Ì¬»º´æ it_rx_ch
+  HAL_UART_Receive_IT(&huart1, &it_rx_ch, 1);
+  /* USER CODE END 3 */
 }
 
-/* é»˜è®¤ä»»åŠ¡ï¼šæ³¨å…¥æµ‹è¯•æŠ¥æ–‡ä¸€æ¬¡ */
-void StartDefaultTask(void *argument) {
+/* Ä¬ÈÏÈÎÎñ£º×¢Èë²âÊÔ±¨ÎÄÒ»´Î */
+void StartDefaultTask(void *argument)
+{
+  /* USER CODE BEGIN StartDefaultTask */
   CanMsgTypeDef testMsg;
   testMsg.id = 0x12345678;
   testMsg.len = 8;
@@ -110,10 +128,13 @@ void StartDefaultTask(void *argument) {
       printf("Put failed\r\n");
   }
   vTaskDelete(NULL);
+  /* USER CODE END StartDefaultTask */
 }
 
-/* ç›‘æ§ä»»åŠ¡ï¼šLEDã€OLEDã€è¶…æ—¶æ£€æµ‹ */
-void StartTask_Monitor(void *argument) {
+/* ¼à¿ØÈÎÎñ£ºLED¡¢OLED¡¢³¬Ê±¼ì²â */
+void StartTask_Monitor(void *argument)
+{
+  /* USER CODE BEGIN StartTask_Monitor */
   char line[20];
   uint32_t now;
   static uint8_t display_cnt = 0;
@@ -125,7 +146,6 @@ void StartTask_Monitor(void *argument) {
     uint16_t volt = g_bms_data.voltage;
     int16_t curr = g_bms_data.current;
     int8_t temp = g_bms_data.temperature;
-    uint8_t fault = g_bms_data.fault_flag;
     uint32_t last_tick = g_bms_data.last_msg_tick;
     osMutexRelease(g_bms_mutex);
 
@@ -133,52 +153,107 @@ void StartTask_Monitor(void *argument) {
     if (last_tick != 0 && (now - last_tick) > 3000) {
       osMutexAcquire(g_bms_mutex, osWaitForever);
       g_bms_data.fault_flag |= 0x10;
-      fault = g_bms_data.fault_flag;
       osMutexRelease(g_bms_mutex);
     }
 
-    if (++display_cnt >= 10) {
+    // OLED Ã¿ 2 ´ÎÑ­»·£¨Ô¼ 1 Ãë£©Ë¢ĞÂÒ»´Î
+    if (++display_cnt >= 2) {
       display_cnt = 0;
       OLED_ShowString(1, 1, "VCU BMS");
-      sprintf(line, "V:%u.%uV", volt/10, volt%10);
-      OLED_ShowString(2, 1, line);
-      sprintf(line, "I:%+d.%dA", curr/10, curr%10);
-      OLED_ShowString(3, 1, line);
-      sprintf(line, "T:%dC F:%02X", temp, fault);
-      OLED_ShowString(4, 1, line);
+
+      uint8_t current_fault;
+      osMutexAcquire(g_bms_mutex, osWaitForever);
+      current_fault = g_bms_data.fault_flag;
+      osMutexRelease(g_bms_mutex);
+
+      if (current_fault & 0x10) {
+        // ³¬Ê±×´Ì¬£ºÊıÖµÊ§Ğ§£¬¹ÊÕÏÎ»ÏÔÊ¾ÍêÕûÖµ
+        OLED_ShowString(2, 1, "V:------");
+        OLED_ShowString(3, 1, "I:------");
+        sprintf(line, "T:--C F:%02X", current_fault);
+        OLED_ShowString(4, 1, line);
+      } else {
+        sprintf(line, "V:%u.%uV", volt/10, volt%10);
+        OLED_ShowString(2, 1, line);
+        sprintf(line, "I:%+d.%dA", curr/10, curr%10);
+        OLED_ShowString(3, 1, line);
+        sprintf(line, "T:%dC F:%02X", temp, current_fault);
+        OLED_ShowString(4, 1, line);
+      }
     }
     osDelay(500);
   }
+  /* USER CODE END StartTask_Monitor */
 }
 
-/* æ¥æ”¶ä»»åŠ¡ï¼šè½®è¯¢ä¸²å£ï¼Œç»„å¸§æŠ•é€’ */
-void StartTask_RecvMsg(void *argument) {
-  uint8_t frame[15];
+/* ½ÓÊÕÈÎÎñ£ºÏû·Ñ»·ĞÎ»º³åÇø×Ö½ÚÁ÷£¬½âÎöAA 55Ö¡£¬Í¶µİÏûÏ¢¶ÓÁĞ */
+void StartTask_RecvMsg(void *argument)
+{
+  /* USER CODE BEGIN StartTask_RecvMsg */
+  uint8_t parse_idx = 0;
   CanMsgTypeDef msg;
   osStatus_t status;
 
-  for(;;) {
-    if (HAL_UART_Receive(&huart1, frame, 15, 20) == HAL_OK) {  // è¶…æ—¶æ”¹æˆ20ms
-      if (frame[0] == 0xAA && frame[1] == 0x55) {
-        memcpy(&msg.id, &frame[2], 4);
-        msg.len = frame[6];
-        memcpy(msg.data, &frame[7], 8);
-        status = osMessageQueuePut(MsgQueueHandle, &msg, 0, 0);
-        if (status != osOK) printf("[RecvMsg] queue full\r\n");
+  for(;;)
+  {
+    // Ê¹ÓÃÁÙ½çÇø±£»¤¶ÁÈ¡ wr_idx ºÍ¸üĞÂ rd_idx£¬±ÜÃâÖĞ¶Ï¸ÉÈÅ
+    uint16_t local_wr, local_rd;
+    taskENTER_CRITICAL();
+    local_wr = wr_idx;
+    local_rd = rd_idx;
+    taskEXIT_CRITICAL();
+
+    while( local_wr != local_rd )
+    {
+      uint8_t ch = uart_ring_buf[local_rd];
+      local_rd = (local_rd + 1) % UART_RING_BUF_SIZE;
+
+      if(parse_idx == 0)
+      {
+        if(ch == 0xAA) parse_idx = 1;
+      }
+      else if(parse_idx == 1)
+      {
+        if(ch == 0x55) parse_idx = 2;
+        else parse_idx = 0;
+      }
+      else
+      {
+        parse_buf[parse_idx++] = ch;
+        if(parse_idx >= 15)
+        {
+          memcpy(&msg.id, &parse_buf[2], 4);
+          msg.len = parse_buf[6];
+          memcpy(msg.data, &parse_buf[7], 8);
+          status = osMessageQueuePut(MsgQueueHandle, &msg, 0, 5U);
+          if(status != osOK) printf("[RecvMsg] queue full drop frame\r\n");
+          parse_idx = 0;
+        }
+        if(parse_idx > 15) parse_idx = 0;
       }
     }
-    osDelay(1);  // â† åŠ è¿™è¡Œï¼Œä¸»åŠ¨è®©å‡ºCPU 1ms
+    // ½«¸üĞÂºóµÄ rd_idx Ğ´»Ø£¨ÁÙ½çÇø±£»¤£©
+    taskENTER_CRITICAL();
+    rd_idx = local_rd;
+    taskEXIT_CRITICAL();
+
+    osDelay(2);
   }
+  /* USER CODE END StartTask_RecvMsg */
 }
 
-/* å¤„ç†ä»»åŠ¡ï¼šè§£ææ•°æ®ï¼Œæ›´æ–°å…¨å±€å˜é‡ */
-void StartTask_BMS_Process(void *argument) {
+/* ´¦ÀíÈÎÎñ£º½âÎöÊı¾İ£¬¸üĞÂÈ«¾Ö±äÁ¿ */
+void StartTask_BMS_Process(void *argument)
+{
+  /* USER CODE BEGIN StartTask_BMS_Process */
   CanMsgTypeDef msg;
-  for(;;) {
-    if (osMessageQueueGet(MsgQueueHandle, &msg, NULL, 1000) == osOK) {
+  for(;;)
+  {
+    if (osMessageQueueGet(MsgQueueHandle, &msg, NULL, 1000) == osOK)
+    {
       uint16_t volt = (uint16_t)(msg.data[0] | (msg.data[1] << 8));
       int16_t curr = (int16_t)(msg.data[2] | (msg.data[3] << 8));
-      int8_t temp = (int8_t)msg.data[4];
+      int8_t temp = (int8_t) msg.data[4];
 
       osMutexAcquire(g_bms_mutex, osWaitForever);
       g_bms_data.voltage = volt;
@@ -186,19 +261,22 @@ void StartTask_BMS_Process(void *argument) {
       g_bms_data.temperature = temp;
       g_bms_data.last_msg_tick = osKernelGetTickCount();
 
-      g_bms_data.fault_flag = 0;
-      if (volt > 4000) g_bms_data.fault_flag |= 0x01;  // âœ… 4000 = 400.0V
-      if (volt < 2000) g_bms_data.fault_flag |= 0x02;  // âœ… 2000 = 200.0V
-      if (temp > 60)   g_bms_data.fault_flag |= 0x04;  // è¿™ä¸ªæ˜¯å¯¹çš„
-      if (curr > 300 || curr < -300) g_bms_data.fault_flag |= 0x08; // è¿™ä¸ªæ˜¯å¯¹çš„ï¼Œ300=30A
-
+      g_bms_data.fault_flag &= ~0x10;          // Çå³ı³¬Ê±±êÖ¾
+      g_bms_data.fault_flag &= ~0x0F;          // Çå³ıÆäËû¹ÊÕÏ£¨¸ù¾İĞÂÊı¾İÖØĞÂ¼ÆËã£©
+      if (volt > 4000) g_bms_data.fault_flag |= 0x01;
+      if (volt < 2000) g_bms_data.fault_flag |= 0x02;
+      if (temp > 60)   g_bms_data.fault_flag |= 0x04;
+      if (curr > 300 || curr < -300) g_bms_data.fault_flag |= 0x08;
       osMutexRelease(g_bms_mutex);
     }
   }
+  /* USER CODE END StartTask_BMS_Process */
 }
 
-/* å“åº”ä»»åŠ¡ï¼šæ‰“å°çŠ¶æ€ */
-void StartTask_Resp(void *argument) {
+/* ÏìÓ¦ÈÎÎñ£º´òÓ¡×´Ì¬ */
+void StartTask_Resp(void *argument)
+{
+  /* USER CODE BEGIN StartTask_Resp */
   for(;;) {
     osMutexAcquire(g_bms_mutex, osWaitForever);
     uint16_t volt = g_bms_data.voltage;
@@ -207,8 +285,13 @@ void StartTask_Resp(void *argument) {
     uint8_t fault = g_bms_data.fault_flag;
     osMutexRelease(g_bms_mutex);
 
-    printf("V=%u.%uV I=%d.%dA T=%dC Fault=0x%02X\r\n",
-           volt/10, volt%10, curr/10, curr%10, temp, fault);
+    // ¸ù¾İ³¬Ê±¹ÊÕÏÎ»¾ö¶¨´òÓ¡ÓĞĞ§Êı¾İ»¹ÊÇ "------"
+    if (fault & 0x10) {
+      printf("V=------ I=------ T=------ Fault=0x%02X\r\n", fault);
+    } else {
+      printf("V=%u.%uV I=%d.%dA T=%dC Fault=0x%02X\r\n",
+             volt/10, volt%10, curr/10, curr%10, temp, fault);
+    }
 
     if (fault & 0x01) printf("  Over Voltage!!\r\n");
     if (fault & 0x02) printf("  Under Voltage!!\r\n");
@@ -218,4 +301,26 @@ void StartTask_Resp(void *argument) {
 
     osDelay(1000);
   }
+  /* USER CODE END StartTask_Resp */
 }
+
+/* USER CODE BEGIN 4 */
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+{
+  if(huart->Instance == USART1)
+  {
+    uart_ring_buf[wr_idx] = it_rx_ch;
+    wr_idx = (wr_idx + 1) % UART_RING_BUF_SIZE;
+    HAL_UART_Receive_IT(&huart1, &it_rx_ch, 1);
+  }
+}
+
+/* ¿ÉÑ¡£ºÕ»Òç³ö¼ì²â¹³×Ó£¨ĞèÒªÔÚ CubeMX ÖĞÆôÓÃ configCHECK_FOR_STACK_OVERFLOW = 2£© */
+// void vApplicationStackOverflowHook(TaskHandle_t xTask, char *pcTaskName)
+// {
+//     for(;;) {
+//         HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
+//         HAL_Delay(100);
+//     }
+// }
+/* USER CODE END 4 */
