@@ -22,7 +22,7 @@ STM32-VCU-BMS/
 ## 开发进度
 - [x] 阶段0：裸机外设验证（LED、USART1、OLED）
 - [x] 阶段1：VCU FreeRTOS框架（4任务+消息队列+串口模拟CAN）
-- [ ] 阶段2：BMS模拟器 FreeRTOS
+- [x] 阶段2：BMS模拟器 FreeRTOS
 - [ ] 阶段3：业务逻辑打磨与模块化
 - [ ] 阶段4：接入bxCAN硬件，替换串口通信层
 - [ ] 阶段5：CAN总线容错与自测
