@@ -15,6 +15,8 @@
 #include "oled.h"
 #include <string.h>
 #include <stdio.h>
+#include "bms_config.h"
+#include "bms_app.h"
 extern UART_HandleTypeDef huart1;
 /* USER CODE END Includes */
 
@@ -26,14 +28,7 @@ typedef struct {
     uint8_t data[8];
 } CanMsgTypeDef;
 
-typedef struct {
-    uint16_t voltage;
-    int16_t current;
-    int8_t temperature;
-    uint8_t fault_flag;
-    uint32_t last_msg_tick;
-} BmsData_t;
-
+// BmsData_t 已经在 bms_app.h 中定义，此处不再重复
 static BmsData_t g_bms_data = {0};
 static osMutexId_t g_bms_mutex;
 
@@ -142,44 +137,28 @@ void StartTask_Monitor(void *argument)
   for(;;) {
     HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
 
+    BmsData_t data;
     osMutexAcquire(g_bms_mutex, osWaitForever);
-    uint16_t volt = g_bms_data.voltage;
-    int16_t curr = g_bms_data.current;
-    int8_t temp = g_bms_data.temperature;
-    uint32_t last_tick = g_bms_data.last_msg_tick;
+    data = g_bms_data;
     osMutexRelease(g_bms_mutex);
 
     now = osKernelGetTickCount();
-    if (last_tick != 0 && (now - last_tick) > 3000) {
+    if (data.last_msg_tick != 0 && (now - data.last_msg_tick) > BMS_TIMEOUT_MS) {
       osMutexAcquire(g_bms_mutex, osWaitForever);
       g_bms_data.fault_flag |= 0x10;
       osMutexRelease(g_bms_mutex);
+      data.fault_flag |= 0x10;
     }
 
-    // OLED 每 2 次循环（约 1 秒）刷新一次
     if (++display_cnt >= 2) {
       display_cnt = 0;
-      OLED_ShowString(1, 1, "VCU BMS");
-
       uint8_t current_fault;
       osMutexAcquire(g_bms_mutex, osWaitForever);
       current_fault = g_bms_data.fault_flag;
       osMutexRelease(g_bms_mutex);
+      data.fault_flag = current_fault;
 
-      if (current_fault & 0x10) {
-        // 超时状态：数值失效，故障位显示完整值
-        OLED_ShowString(2, 1, "V:------");
-        OLED_ShowString(3, 1, "I:------");
-        sprintf(line, "T:--C F:%02X", current_fault);
-        OLED_ShowString(4, 1, line);
-      } else {
-        sprintf(line, "V:%u.%uV", volt/10, volt%10);
-        OLED_ShowString(2, 1, line);
-        sprintf(line, "I:%+d.%dA", curr/10, curr%10);
-        OLED_ShowString(3, 1, line);
-        sprintf(line, "T:%dC F:%02X", temp, current_fault);
-        OLED_ShowString(4, 1, line);
-      }
+      BMS_DisplayData(&data, line);
     }
     osDelay(500);
   }
@@ -247,26 +226,22 @@ void StartTask_BMS_Process(void *argument)
 {
   /* USER CODE BEGIN StartTask_BMS_Process */
   CanMsgTypeDef msg;
-  for(;;)
-  {
-    if (osMessageQueueGet(MsgQueueHandle, &msg, NULL, 1000) == osOK)
-    {
-      uint16_t volt = (uint16_t)(msg.data[0] | (msg.data[1] << 8));
-      int16_t curr = (int16_t)(msg.data[2] | (msg.data[3] << 8));
-      int8_t temp = (int8_t) msg.data[4];
+  for(;;) {
+    if (osMessageQueueGet(MsgQueueHandle, &msg, NULL, 1000) == osOK) {
+      BmsData_t new_data;
+      new_data.voltage = (uint16_t)(msg.data[0] | (msg.data[1] << 8));
+      new_data.current = (int16_t)(msg.data[2] | (msg.data[3] << 8));
+      new_data.temperature = (int8_t)msg.data[4];
+      new_data.last_msg_tick = osKernelGetTickCount();
 
       osMutexAcquire(g_bms_mutex, osWaitForever);
-      g_bms_data.voltage = volt;
-      g_bms_data.current = curr;
-      g_bms_data.temperature = temp;
-      g_bms_data.last_msg_tick = osKernelGetTickCount();
+      g_bms_data.voltage = new_data.voltage;
+      g_bms_data.current = new_data.current;
+      g_bms_data.temperature = new_data.temperature;
+      g_bms_data.last_msg_tick = new_data.last_msg_tick;
+      g_bms_data.fault_flag &= ~0x10;
 
-      g_bms_data.fault_flag &= ~0x10;          // 清除超时标志
-      g_bms_data.fault_flag &= ~0x0F;          // 清除其他故障（根据新数据重新计算）
-      if (volt > 4000) g_bms_data.fault_flag |= 0x01;
-      if (volt < 2000) g_bms_data.fault_flag |= 0x02;
-      if (temp > 60)   g_bms_data.fault_flag |= 0x04;
-      if (curr > 300 || curr < -300) g_bms_data.fault_flag |= 0x08;
+      BMS_UpdateFault(&g_bms_data);
       osMutexRelease(g_bms_mutex);
     }
   }

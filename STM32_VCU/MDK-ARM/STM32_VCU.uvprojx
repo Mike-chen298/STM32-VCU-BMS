@@ -586,6 +586,21 @@
               <FileType>1</FileType>
               <FilePath>../Core/Src/stm32f1xx_hal_timebase_tim.c</FilePath>
             </File>
+            <File>
+              <FileName>bms_app.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\Core\Inc\bms_app.h</FilePath>
+            </File>
+            <File>
+              <FileName>bms_config.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\Core\Inc\bms_config.h</FilePath>
+            </File>
+            <File>
+              <FileName>bms_app.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Core\Src\bms_app.c</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>
