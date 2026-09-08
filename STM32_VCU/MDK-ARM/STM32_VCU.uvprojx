@@ -414,6 +414,16 @@
               <FilePath>..\Core\Src\bms_app.c</FilePath>
             </File>
             <File>
+              <FileName>can_driver.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Core\Src\can_driver.c</FilePath>
+            </File>
+            <File>
+              <FileName>can_driver.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\Core\Inc\can_driver.h</FilePath>
+            </File>
+            <File>
               <FileName>main.c</FileName>
               <FileType>1</FileType>
               <FilePath>../Core/Src/main.c</FilePath>
