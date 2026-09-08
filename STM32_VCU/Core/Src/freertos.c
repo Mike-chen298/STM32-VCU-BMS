@@ -226,9 +226,9 @@ void StartTask_Monitor(void *argument)
     now = osKernelGetTickCount();
     if (data.last_msg_tick != 0 && (now - data.last_msg_tick) > BMS_TIMEOUT_MS) {
       osMutexAcquire(g_bms_mutex, osWaitForever);
-      g_bms_data.fault_flag |= 0x10;
+      g_bms_data.fault_flag = 0x10;
       osMutexRelease(g_bms_mutex);
-      data.fault_flag |= 0x10;
+      data.fault_flag = 0x10;
     }
     if (++display_cnt >= 2) {
       display_cnt = 0;
@@ -385,8 +385,8 @@ void StartTask_BMS_Simulate(void *argument)
         //模拟正常工况电压 307.2V
         sim_msg.data[0] = 0x00;
         sim_msg.data[1] = 0x0C;
-        sim_msg.data[2] = 0x00;
-        sim_msg.data[3] = 0x00;
+        sim_msg.data[2] = 0xF4;
+        sim_msg.data[3] = 0x01;
         sim_msg.data[4] = 25;
         sim_msg.data[5] = 0;
         sim_msg.data[6] = 0;
