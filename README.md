@@ -79,7 +79,7 @@ STM32-VCU-BMS/
 
 **TJA1050之间（CAN总线）**
 - CANH ↔ CANH
-- CANL ↔ CANL
+- CANL ↔ CANL 
 - GND ↔ GND（必须共地，重中之重）
 
 **终端电阻说明**：所用TJA1050模块板载焊死120Ω电阻，无跳线无法断开
