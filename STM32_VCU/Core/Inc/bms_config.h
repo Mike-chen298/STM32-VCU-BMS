@@ -14,4 +14,14 @@
 /*************************** 通信超时（单位：ms） ***************************/
 #define BMS_TIMEOUT_MS      3000    // 3秒无报文视为通信丢失
 
+/*================ CAN模式切换：阶段4回环 / 阶段5真实硬件CAN =================*/
+#define CAN_LOOPBACK_TEST_MODE     1U   // 1：回环自测模式；0：真实硬件CAN模式
+
+#if (CAN_LOOPBACK_TEST_MODE == 1U)
+#define ENABLE_SIM_BMS_TASK        1U   // 开启内部模拟BMS发送任务（回环自测用）
+#else
+#define ENABLE_SIM_BMS_TASK        0U   // 关闭模拟任务，报文来自外部CAN硬件
 #endif
+
+#endif
+

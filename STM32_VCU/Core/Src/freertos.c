@@ -46,7 +46,6 @@ static volatile uint16_t rd_idx = 0;
 static uint8_t parse_buf[15];
 static uint8_t it_rx_ch;  // 中断接收静态缓存，禁止局部变量
 
-extern osMessageQueueId_t MsgQueueHandle;
 /* USER CODE END Variables */
 
 /* Definitions for defaultTask */
@@ -100,7 +99,9 @@ const osMessageQueueAttr_t MsgQueue_attributes = {
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
+#if ENABLE_SIM_BMS_TASK
 void StartTask_BMS_Simulate(void *argument);
+#endif
 /* USER CODE END FunctionPrototypes */
 
 void StartDefaultTask(void *argument);
@@ -155,10 +156,11 @@ void MX_FREERTOS_Init(void) {
 
   /* creation of Task_Resp */
   Task_RespHandle = osThreadNew(StartTask_Resp, NULL, &Task_Resp_attributes);
-
+  
+#if ENABLE_SIM_BMS_TASK
   /* creation of Task_BMS_Simulate 模拟BMS发送任务，回环模式使用 */
   Task_BMS_SimulateHandle = osThreadNew(StartTask_BMS_Simulate, NULL, &Task_BMS_Simulate_attributes);
-
+#endif
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
   /* USER CODE END RTOS_THREADS */
@@ -374,6 +376,7 @@ void StartTask_Resp(void *argument)
 * @retval None
 */
 /* USER CODE END Header_StartTask_BMS_Simulate */
+#if ENABLE_SIM_BMS_TASK
 void StartTask_BMS_Simulate(void *argument)
 {
     /* USER CODE BEGIN StartTask_BMS_Simulate */
@@ -399,6 +402,7 @@ void StartTask_BMS_Simulate(void *argument)
     }
     /* USER CODE END StartTask_BMS_Simulate */
 }
+#endif
 
 /* Private application code --------------------------------------------------*/
 /* USER CODE BEGIN Application */
