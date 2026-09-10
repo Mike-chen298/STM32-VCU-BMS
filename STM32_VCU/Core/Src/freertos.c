@@ -6,11 +6,13 @@
 ---
   */
 /* USER CODE END Header */
+
 /* Includes ------------------------------------------------------------------*/
 #include "FreeRTOS.h"
 #include "task.h"
 #include "main.h"
 #include "cmsis_os.h"
+
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "oled.h"
@@ -23,20 +25,32 @@
 #include "can.h"
 #include "can_driver.h"
 /* USER CODE END Includes */
+
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
 /* USER CODE END PTD */
+
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 /* USER CODE END PD */
+
 /* Private macro -------------------------------------------------------------*/
 /* USER CODE BEGIN PM */
 /* USER CODE END PM */
+
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN Variables */
 // BmsData_t 已经在 bms_app.h 中定义，此处不再重复
 static BmsData_t g_bms_data = {0};
 static osMutexId_t g_bms_mutex;
+#if ENABLE_SIM_BMS_TASK
+osThreadId_t Task_BMS_SimulateHandle;
+const osThreadAttr_t Task_BMS_Simulate_attributes = {
+  .name = "Task_BMS_Simulate",
+  .stack_size = 256 * 4,
+  .priority = (osPriority_t) osPriorityNormal,
+};
+#endif
 
 // 串口中断环形缓冲（阶段1?3历史备份，保留不删除）
 #define UART_RING_BUF_SIZE 256
@@ -47,7 +61,6 @@ static uint8_t parse_buf[15];
 static uint8_t it_rx_ch;  // 中断接收静态缓存，禁止局部变量
 
 /* USER CODE END Variables */
-
 /* Definitions for defaultTask */
 osThreadId_t defaultTaskHandle;
 const osThreadAttr_t defaultTask_attributes = {
@@ -83,14 +96,6 @@ const osThreadAttr_t Task_Resp_attributes = {
   .stack_size = 256 * 4,
   .priority = (osPriority_t) osPriorityNormal,
 };
-/* Definitions for Task_BMS_Simulate */
-osThreadId_t Task_BMS_SimulateHandle;
-const osThreadAttr_t Task_BMS_Simulate_attributes = {
-  .name = "Task_BMS_Simulate",
-  .stack_size = 256 * 4,
-  .priority = (osPriority_t) osPriorityNormal,
-};
-
 /* Definitions for MsgQueue */
 osMessageQueueId_t MsgQueueHandle;
 const osMessageQueueAttr_t MsgQueue_attributes = {
@@ -109,6 +114,7 @@ void StartTask_Monitor(void *argument);
 void StartTask_RecvMsg(void *argument);
 void StartTask_BMS_Process(void *argument);
 void StartTask_Resp(void *argument);
+
 void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
 
 /**
@@ -156,19 +162,18 @@ void MX_FREERTOS_Init(void) {
 
   /* creation of Task_Resp */
   Task_RespHandle = osThreadNew(StartTask_Resp, NULL, &Task_Resp_attributes);
-  
+
+  /* USER CODE BEGIN RTOS_THREADS */
 #if ENABLE_SIM_BMS_TASK
-  /* creation of Task_BMS_Simulate 模拟BMS发送任务，回环模式使用 */
   Task_BMS_SimulateHandle = osThreadNew(StartTask_BMS_Simulate, NULL, &Task_BMS_Simulate_attributes);
 #endif
-  /* USER CODE BEGIN RTOS_THREADS */
-  /* add threads, ... */
   /* USER CODE END RTOS_THREADS */
 
   /* USER CODE BEGIN RTOS_EVENTS */
   /* add events, ... */
   HAL_UART_Receive_IT(&huart1, &it_rx_ch, 1);
   /* USER CODE END RTOS_EVENTS */
+
 }
 
 /* USER CODE BEGIN Header_StartDefaultTask */
@@ -369,23 +374,16 @@ void StartTask_Resp(void *argument)
   /* USER CODE END StartTask_Resp */
 }
 
-/* USER CODE BEGIN Header_StartTask_BMS_Simulate */
-/**
-* @brief 回环模式临时模拟BMS发送任务；硬件联调时屏蔽此任务
-* @param argument: Not used
-* @retval None
-*/
-/* USER CODE END Header_StartTask_BMS_Simulate */
+/* Private application code --------------------------------------------------*/
+/* USER CODE BEGIN Application */
 #if ENABLE_SIM_BMS_TASK
 void StartTask_BMS_Simulate(void *argument)
 {
-    /* USER CODE BEGIN StartTask_BMS_Simulate */
     for(;;)
     {
         CanMsgTypeDef sim_msg;
         sim_msg.id = 0x18000501U;
         sim_msg.len = 8;
-        //模拟正常工况电压 307.2V
         sim_msg.data[0] = 0x00;
         sim_msg.data[1] = 0x0C;
         sim_msg.data[2] = 0xF4;
@@ -394,18 +392,12 @@ void StartTask_BMS_Simulate(void *argument)
         sim_msg.data[5] = 0;
         sim_msg.data[6] = 0;
         sim_msg.data[7] = 0;
-
         can_send(&sim_msg);
         printf("[Sim?BMS] send CAN id:0x%08X\r\n", sim_msg.id);
-
         osDelay(100);
     }
-    /* USER CODE END StartTask_BMS_Simulate */
 }
 #endif
-
-/* Private application code --------------------------------------------------*/
-/* USER CODE BEGIN Application */
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
   if(huart->Instance == USART1)
@@ -416,3 +408,4 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
   }
 }
 /* USER CODE END Application */
+
