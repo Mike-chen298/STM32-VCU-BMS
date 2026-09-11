@@ -111,38 +111,27 @@ void MX_FREERTOS_Init(void) {
 void StartDefaultTask(void *argument)
 {
   /* USER CODE BEGIN StartDefaultTask */
-  can_driver_init();   // 初始化CAN驱动（启动+过滤器）
-
+  can_driver_init();
   for(;;)
   {
-    if (sim_enable_send)   // 1=正常发送，0=停止（模拟通信丢失）
+      can_check_and_recover_busoff();   // 【新增】Bus-Off检测与自动恢复，每100ms检查一次
+    if (sim_enable_send)
     {
       CanMsgTypeDef sim_msg;
       sim_msg.id = 0x18000501U;
       sim_msg.len = 8;
-
-      // 电压（小端，低字节在前）
       sim_msg.data[0] = (uint8_t)(sim_voltage & 0xFF);
       sim_msg.data[1] = (uint8_t)((sim_voltage >> 8) & 0xFF);
-
-      // 电流（小端，有符号）
       sim_msg.data[2] = (uint8_t)(sim_current & 0xFF);
       sim_msg.data[3] = (uint8_t)((sim_current >> 8) & 0xFF);
-
-      // 温度
       sim_msg.data[4] = (uint8_t)sim_temperature;
-
-      // 预留
       sim_msg.data[5] = 0;
       sim_msg.data[6] = 0;
       sim_msg.data[7] = 0;
-
-      int ret = can_send(&sim_msg);   // 通过CAN发送报文
-      printf("send ret=%d\r\n", ret);   // 0=成功，-1=NULL，-2=HAL发送失败
+      can_send(&sim_msg);
     }
-
-    HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);  // 心跳灯
-    osDelay(100);   // 100ms发一帧
+    HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
+    osDelay(100);
   }
   /* USER CODE END StartDefaultTask */
 }

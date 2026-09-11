@@ -23,5 +23,7 @@
 #define ENABLE_SIM_BMS_TASK        0U   // 关闭模拟任务，报文来自外部CAN硬件
 #endif
 
+#define BMS_FAULT_DEBOUNCE_CNT  3   // 【新增】防抖阈值：连续3次异常才置位，连续3次正常才清除
+
 #endif
 

@@ -218,7 +218,7 @@ void StartTask_Monitor(void *argument)
   static uint32_t stat_tick = 0;
   for(;;) {
     HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
-
+can_check_and_recover_busoff();   // 【新增】Bus-Off检测与自动恢复，每500ms检查一次
     stat_tick ++;
     if(stat_tick >=4)
     {

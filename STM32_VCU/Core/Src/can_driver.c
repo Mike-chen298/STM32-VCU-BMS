@@ -2,6 +2,7 @@
 #include "can.h"
 #include "FreeRTOS.h"
 #include <string.h>
+#include <stdio.h>
 
 // 报文统计
 volatile uint32_t can_rx_total = 0U;
@@ -84,3 +85,47 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan)
         }
     }
 }
+uint8_t can_check_and_recover_busoff(void)
+{
+    // 不是Bus-Off状态，直接返回
+    if ((hcan.Instance->ESR & CAN_ESR_BOFF) == 0U)
+    {
+        return 0;
+    }
+
+    printf("[CAN] Bus-Off detected! TEC>255, starting recovery...\r\n");
+
+    // 1. 停止CAN控制器
+    HAL_CAN_Stop(&hcan);
+
+    // 2. 重新配置过滤器（Bus-Off后寄存器状态不确定，重新配一遍保险）
+    CAN_FilterTypeDef sFilterConfig;
+    sFilterConfig.FilterBank = 0;
+    sFilterConfig.FilterMode = CAN_FILTERMODE_IDMASK;
+    sFilterConfig.FilterScale = CAN_FILTERSCALE_32BIT;
+    sFilterConfig.FilterIdHigh       = 0x0000U;
+    sFilterConfig.FilterIdLow        = 0x0000U;
+    sFilterConfig.FilterMaskIdHigh   = 0x0000U;
+    sFilterConfig.FilterMaskIdLow    = 0x0000U;
+    sFilterConfig.FilterFIFOAssignment = CAN_RX_FIFO0;
+    sFilterConfig.FilterActivation   = CAN_FILTER_ENABLE;
+    HAL_CAN_ConfigFilter(&hcan, &sFilterConfig);
+
+    // 3. 重新启动CAN
+    if (HAL_CAN_Start(&hcan) != HAL_OK)
+    {
+        printf("[CAN] ERROR: CAN_Start failed during recovery!\r\n");
+        return 1;
+    }
+
+    // 4. 重新激活接收中断
+    if (HAL_CAN_ActivateNotification(&hcan, CAN_IT_RX_FIFO0_MSG_PENDING) != HAL_OK)
+    {
+        printf("[CAN] ERROR: ActivateNotification failed during recovery!\r\n");
+        return 1;
+    }
+
+    printf("[CAN] Bus-Off recovery done, CAN restarted.\r\n");
+    return 1;
+}
+

@@ -25,5 +25,6 @@ int can_send(CanMsgTypeDef *msg);
  * @brief CAN过滤器初始化，启动CAN控制器，开启接收通知
  */
 void can_driver_init(void);
+uint8_t can_check_and_recover_busoff(void);
 
 #endif

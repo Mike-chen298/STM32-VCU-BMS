@@ -11,6 +11,8 @@ typedef struct {
     int8_t temperature;
     uint8_t fault_flag;
     uint32_t last_msg_tick;
+    uint8_t fault_debounce[4];  // 【新增】4个硬件故障防抖计数器
+                                // [0]=过压 [1]=欠压 [2]=过温 [3]=过流
 } BmsData_t;
 
 // BMS 状态机枚举
