@@ -68,16 +68,40 @@ void BMS_UpdateFault(BmsData_t *data)
 
 BmsState_t BMS_GetState(BmsData_t *data)
 {
-    if (data->fault_flag & 0x10) return BMS_STATE_SLEEP;
-    if (data->fault_flag & 0x0F) return BMS_STATE_FAULT;
-    if (data->temperature > 55) return BMS_STATE_WARNING;
+    /* 从未收到过数据 → INIT状态 */
+    if (data->last_msg_tick == 0) {
+        return BMS_STATE_INIT;
+    }
+    /* 通信超时（fault_flag第4位0x10） → SLEEP */
+    if (data->fault_flag & 0x10) {
+        return BMS_STATE_SLEEP;
+    }
+    /* 有硬件故障（低4位0x0F：过压/欠压/过温/过流） → FAULT */
+    if (data->fault_flag & 0x0F) {
+        return BMS_STATE_FAULT;
+    }
+    /* 温度偏高但未到故障阈值 → WARNING */
+    if (data->temperature > 55) {
+        return BMS_STATE_WARNING;
+    }
+    /* 一切正常 → NORMAL */
     return BMS_STATE_NORMAL;
 }
 
 void BMS_DisplayData(BmsData_t *data, char *line_buf)
 {
-    OLED_ShowString(1, 1, "VCU BMS");
+    /* 第1行：显示当前状态机状态 */
+    BmsState_t state = BMS_GetState(data);
+    switch (state) {
+        case BMS_STATE_INIT:    OLED_ShowString(1, 1, "BMS:INIT   "); break;
+        case BMS_STATE_NORMAL:  OLED_ShowString(1, 1, "BMS:NORMAL "); break;
+        case BMS_STATE_WARNING: OLED_ShowString(1, 1, "BMS:WARN   "); break;
+        case BMS_STATE_FAULT:   OLED_ShowString(1, 1, "BMS:FAULT  "); break;
+        case BMS_STATE_SLEEP:   OLED_ShowString(1, 1, "BMS:SLEEP  "); break;
+        default:                OLED_ShowString(1, 1, "BMS:???    "); break;
+    }
 
+    /* 第2-4行：数据显示（通信超时时显示------） */
     if (data->fault_flag & 0x10) {
         OLED_ShowString(2, 1, "V:------");
         OLED_ShowString(3, 1, "I:------");

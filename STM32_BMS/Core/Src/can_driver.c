@@ -54,15 +54,11 @@ void can_driver_init(void)
     ret = HAL_CAN_Start(&hcan);
     printf("CAN_Start ret=%d, state=%d\r\n", ret, HAL_CAN_GetState(&hcan));
     
-// 第3步：开启接收中断（C8T6现在要收VCU的0x7E8响应）
-    ret = HAL_CAN_ActivateNotification(&hcan, CAN_IT_RX_FIFO0_MSG_PENDING);
-    printf("CAN_ActivateNotification ret=%d\r\n", ret);
-    
     /* 【新增】手动使能CAN RX0中断的NVIC通道 */
     HAL_NVIC_SetPriority(USB_LP_CAN1_RX0_IRQn, 5, 0);
     HAL_NVIC_EnableIRQ(USB_LP_CAN1_RX0_IRQn);
 }
-
+#if 0
 // CAN接收回调：收到VCU的0x7E8响应后打印
 void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan)
 {
@@ -79,7 +75,7 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan)
         printf("\r\n");
     }
 }
-
+#endif
 uint8_t can_check_and_recover_busoff(void)
 {
     // 直接读ESR寄存器BOFF位判断Bus-Off（不依赖HAL状态枚举，兼容性好）

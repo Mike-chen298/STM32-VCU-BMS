@@ -193,8 +193,8 @@ void USART1_IRQHandler(void)
 /**
   * @brief This function handles CAN1 RX0 interrupt.
   */
-void USB_LP_CAN1_RX0_IRQHandler(void)
-{
-  HAL_CAN_IRQHandler(&hcan);
-}
+//void USB_LP_CAN1_RX0_IRQHandler(void)
+//{
+//  HAL_CAN_IRQHandler(&hcan);
+//}
 /* USER CODE END 1 */

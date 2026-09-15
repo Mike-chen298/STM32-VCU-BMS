@@ -17,10 +17,11 @@ typedef struct {
 
 // BMS 状态机枚举
 typedef enum {
-    BMS_STATE_NORMAL = 0,
-    BMS_STATE_WARNING,
-    BMS_STATE_FAULT,
-    BMS_STATE_SLEEP
+    BMS_STATE_INIT = 0,     /* 0 */
+    BMS_STATE_NORMAL = 1,   /* 1 ← 这里必须是1，不能是0 */
+    BMS_STATE_WARNING = 2,  /* 2 */
+    BMS_STATE_FAULT = 3,    /* 3 */
+    BMS_STATE_SLEEP = 4     /* 4 */
 } BmsState_t;
 
 // 对外接口
