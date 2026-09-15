@@ -541,9 +541,9 @@
               </FileOption>
             </File>
             <File>
-              <FileName>can.c</FileName>
+              <FileName>usart.c</FileName>
               <FileType>1</FileType>
-              <FilePath>../Core/Src/can.c</FilePath>
+              <FilePath>../Core/Src/usart.c</FilePath>
               <FileOption>
                 <CommonProperty>
                   <UseCPPCompiler>2</UseCPPCompiler>
@@ -597,9 +597,9 @@
               </FileOption>
             </File>
             <File>
-              <FileName>usart.c</FileName>
+              <FileName>can.c</FileName>
               <FileType>1</FileType>
-              <FilePath>../Core/Src/usart.c</FilePath>
+              <FilePath>../Core/Src/can.c</FilePath>
               <FileOption>
                 <CommonProperty>
                   <UseCPPCompiler>2</UseCPPCompiler>
@@ -666,6 +666,16 @@
               <FileName>stm32f1xx_hal_timebase_tim.c</FileName>
               <FileType>1</FileType>
               <FilePath>../Core/Src/stm32f1xx_hal_timebase_tim.c</FilePath>
+            </File>
+            <File>
+              <FileName>uds.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\Core\Inc\uds.h</FilePath>
+            </File>
+            <File>
+              <FileName>uds.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Core\Src\uds.c</FilePath>
             </File>
           </Files>
         </Group>

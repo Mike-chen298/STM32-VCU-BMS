@@ -44,6 +44,27 @@ static uint16_t sim_voltage = 3200;   // 320.0V（单位：0.1V）
 static int16_t sim_current = 123;    // 12.3A，乘10
 static int8_t sim_temperature = 25;  // 25℃
 static uint8_t sim_enable_send = 1;  // 1=发送 0=停止（模拟通信丢失）
+static uint32_t uds_test_cnt = 0;
+static uint8_t uds_test_idx = 0;
+
+/* UDS自动测试用例表 */
+typedef struct {
+    const char *name;
+    uint8_t data[8];
+} UDS_Test_t;
+
+static const UDS_Test_t uds_tests[] = {
+    /* 0 */ {"0x22 read voltage(F190)",      {0x03,0x22,0xF1,0x90,0,0,0,0}},
+    /* 1 */ {"0x22 read current(F191)",      {0x03,0x22,0xF1,0x91,0,0,0,0}},
+    /* 2 */ {"0x22 read temperature(F192)",  {0x03,0x22,0xF1,0x92,0,0,0,0}},
+    /* 3 */ {"0x22 read fault(F193)",        {0x03,0x22,0xF1,0x93,0,0,0,0}},
+    /* 4 */ {"0x22 read invalid DID(FFFF)",  {0x03,0x22,0xFF,0xFF,0,0,0,0}},
+    /* 5 */ {"0x10 switch extended session", {0x02,0x10,0x03,0,0,0,0,0}},
+    /* 6 */ {"0x2E write voltage=330.0V",    {0x05,0x2E,0xF1,0x90,0xE4,0x0C,0,0}},
+    /* 7 */ {"0x22 read voltage(verify)",    {0x03,0x22,0xF1,0x90,0,0,0,0}},
+    /* 8 */ {"0x2E write in default(NRC)",   {0x05,0x2E,0xF1,0x90,0xE4,0x0C,0,0}},
+};
+#define UDS_TEST_NUM  (sizeof(uds_tests)/sizeof(uds_tests[0]))
 /* USER CODE END Variables */
 /* Definitions for defaultTask */
 osThreadId_t defaultTaskHandle;
@@ -131,6 +152,55 @@ void StartDefaultTask(void *argument)
       can_send(&sim_msg);
     }
     HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
+        /* ===== UDS自动测试：每5秒发一个请求，轮流测试所有服务 ===== */
+    uds_test_cnt++;
+    if (uds_test_cnt >= 50U)   /* 50帧 × 100ms = 5秒 */
+    {
+        uds_test_cnt = 0;
+
+        /* 发完索引7后，停2个周期(10秒)，让扩展会话超时退回默认会话 */
+        static uint8_t wait_timeout = 0;
+        if (uds_test_idx == 8 && wait_timeout < 2)
+        {
+            wait_timeout++;
+            printf("[UDS] waiting for session timeout (%d/2)...\r\n", wait_timeout);
+        }
+        else
+        {
+            wait_timeout = 0;
+            CanMsgTypeDef uds_req;
+            uds_req.id = 0x000007E0U;
+            uds_req.len = 8U;
+            memcpy(uds_req.data, uds_tests[uds_test_idx].data, 8U);
+            can_send(&uds_req);
+            printf("[UDS TX] %s\r\n", uds_tests[uds_test_idx].name);
+
+            uds_test_idx++;
+            if (uds_test_idx >= UDS_TEST_NUM)
+            {
+                uds_test_idx = 0;
+                printf("[UDS] === test cycle done, restart ===\r\n");
+            }
+        }
+    }
+    /* ===== UDS自动测试结束 ===== */
+
+    /* ===== 【调试】查询方式读CAN，绕过中断，测试能不能收到 ===== */
+    if (HAL_CAN_GetRxFifoFillLevel(&hcan, CAN_RX_FIFO0) > 0U)
+    {
+        CAN_RxHeaderTypeDef rx_header;
+        uint8_t rx_data[8];
+        if (HAL_CAN_GetRxMessage(&hcan, CAN_RX_FIFO0, &rx_header, rx_data) == HAL_OK)
+        {
+            printf("[POLL RX] ID=0x%08X len=%d data:", rx_header.ExtId, rx_header.DLC);
+            for(uint8_t i = 0; i < rx_header.DLC; i++)
+            {
+                printf("%02X ", rx_data[i]);
+            }
+            printf("\r\n");
+        }
+    }
+    /* ===== 查询测试结束 ===== */
     osDelay(100);
   }
   /* USER CODE END StartDefaultTask */

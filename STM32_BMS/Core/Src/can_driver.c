@@ -53,39 +53,33 @@ void can_driver_init(void)
     // 第2步：启动CAN控制器
     ret = HAL_CAN_Start(&hcan);
     printf("CAN_Start ret=%d, state=%d\r\n", ret, HAL_CAN_GetState(&hcan));
-
-    // C8T6只发不收，不开启接收中断
+    
+// 第3步：开启接收中断（C8T6现在要收VCU的0x7E8响应）
+    ret = HAL_CAN_ActivateNotification(&hcan, CAN_IT_RX_FIFO0_MSG_PENDING);
+    printf("CAN_ActivateNotification ret=%d\r\n", ret);
+    
+    /* 【新增】手动使能CAN RX0中断的NVIC通道 */
+    HAL_NVIC_SetPriority(USB_LP_CAN1_RX0_IRQn, 5, 0);
+    HAL_NVIC_EnableIRQ(USB_LP_CAN1_RX0_IRQn);
 }
 
-// CAN接收回调（C8T6不用，用#if 0屏蔽，避免编译MsgQueueHandle未定义）
-#if 0
+// CAN接收回调：收到VCU的0x7E8响应后打印
 void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan)
 {
+    printf("RX IRQ!\r\n");   /* 【新增调试】只要进中断就打印 */
     CAN_RxHeaderTypeDef rx_header;
     uint8_t rx_data[8];
     if(HAL_CAN_GetRxMessage(hcan, CAN_RX_FIFO0, &rx_header, rx_data) == HAL_OK)
     {
-        if(rx_header.RTR == CAN_RTR_REMOTE)
+        printf("[CAN RX] ID=0x%08X len=%d data:", rx_header.ExtId, rx_header.DLC);
+        for(uint8_t i = 0; i < rx_header.DLC; i++)
         {
-            return;
+            printf("%02X ", rx_data[i]);
         }
-        CanMsgTypeDef can_msg;
-        can_msg.id = rx_header.ExtId;
-        can_msg.len = rx_header.DLC;
-        memcpy(can_msg.data, rx_data, 8);
-        //中断上下文，timeout必须写0，绝对不能阻塞
-        osStatus_t status = osMessageQueuePut(MsgQueueHandle, &can_msg, 0U, 0U);
-        if(status == osOK)
-        {
-            can_rx_total++;
-        }
-        else
-        {
-            can_drop_count++;
-        }
+        printf("\r\n");
     }
 }
-#endif
+
 uint8_t can_check_and_recover_busoff(void)
 {
     // 直接读ESR寄存器BOFF位判断Bus-Off（不依赖HAL状态枚举，兼容性好）

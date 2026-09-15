@@ -22,6 +22,7 @@
 #include "stm32f1xx_it.h"
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "can.h"    /* 【新增】hcan的定义 */
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -59,7 +60,7 @@ extern UART_HandleTypeDef huart1;
 extern TIM_HandleTypeDef htim1;
 
 /* USER CODE BEGIN EV */
-
+extern CAN_HandleTypeDef hcan;    /* 【新增】CAN句柄 */
 /* USER CODE END EV */
 
 /******************************************************************************/
@@ -189,5 +190,11 @@ void USART1_IRQHandler(void)
 }
 
 /* USER CODE BEGIN 1 */
-
+/**
+  * @brief This function handles CAN1 RX0 interrupt.
+  */
+void USB_LP_CAN1_RX0_IRQHandler(void)
+{
+  HAL_CAN_IRQHandler(&hcan);
+}
 /* USER CODE END 1 */

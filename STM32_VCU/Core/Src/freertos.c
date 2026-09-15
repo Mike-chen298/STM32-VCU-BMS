@@ -24,6 +24,7 @@
 #include "usart.h"
 #include "can.h"
 #include "can_driver.h"
+#include "uds.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -41,8 +42,8 @@
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN Variables */
 // BmsData_t ÒÑ¾­ÔÚ bms_app.h ÖÐ¶¨Òå£¬´Ë´¦²»ÔÙÖØ¸´
-static BmsData_t g_bms_data = {0};
-static osMutexId_t g_bms_mutex;
+BmsData_t g_bms_data = {0};
+osMutexId_t g_bms_mutex;
 #if ENABLE_SIM_BMS_TASK
 osThreadId_t Task_BMS_SimulateHandle;
 const osThreadAttr_t Task_BMS_Simulate_attributes = {
@@ -125,6 +126,7 @@ void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
 void MX_FREERTOS_Init(void) {
   /* USER CODE BEGIN Init */
     g_bms_mutex = osMutexNew(NULL);
+    UDS_Init();    /* ¡¾ÐÂÔö¡¿UDSÕï¶Ï³õÊ¼»¯£¬Ä¬ÈÏ»á»° */
   /* USER CODE END Init */
 
   /* USER CODE BEGIN RTOS_MUTEX */
@@ -186,18 +188,11 @@ void MX_FREERTOS_Init(void) {
 void StartDefaultTask(void *argument)
 {
   /* USER CODE BEGIN StartDefaultTask */
-  CanMsgTypeDef testMsg;
-  testMsg.id = 0x12345678;
-  testMsg.len = 8;
-  testMsg.data[0] = 0x6D; testMsg.data[1] = 0x01;
-  testMsg.data[2] = 0x7B; testMsg.data[3] = 0x00;
-  testMsg.data[4] = 0x2D; testMsg.data[5] = 0x00;
-  testMsg.data[6] = 0x00; testMsg.data[7] = 0x00;
-  printf("Inject test message\r\n");
-  if (osMessageQueuePut(MsgQueueHandle, &testMsg, 0, 0) != osOK) {
-      printf("Put failed\r\n");
+  /* ²âÊÔ×¢Èë´úÂëÒÑÉ¾³ý£¬´ËÈÎÎñ±£ÁôÎª¿ÕÈÎÎñ */
+  for(;;)
+  {
+    osDelay(1000);
   }
-  vTaskDelete(NULL);
   /* USER CODE END StartDefaultTask */
 }
 
@@ -231,6 +226,7 @@ can_check_and_recover_busoff();   // ¡¾ÐÂÔö¡¿Bus-Off¼ì²âÓë×Ô¶¯»Ö¸´£¬Ã¿500ms¼ì²éÒ
     data = g_bms_data;
     osMutexRelease(g_bms_mutex);
     now = osKernelGetTickCount();
+    UDS_TickSessionTimeout(now);   /* ¡¾ÐÂÔö¡¿UDS»á»°³¬Ê±¼ì²â */
     if (data.last_msg_tick != 0 && (now - data.last_msg_tick) > BMS_TIMEOUT_MS) {
       osMutexAcquire(g_bms_mutex, osWaitForever);
       g_bms_data.fault_flag = 0x10;
@@ -322,19 +318,51 @@ void StartTask_BMS_Process(void *argument)
   CanMsgTypeDef msg;
   for(;;) {
     if (osMessageQueueGet(MsgQueueHandle, &msg, NULL, osWaitForever) == osOK) {
-      BmsData_t new_data;
-      new_data.voltage  = (uint16_t)(msg.data[0] | (msg.data[1] << 8));
-      new_data.current  = (int16_t)(msg.data[2] | (msg.data[3] << 8));
-      new_data.temperature = (int8_t)msg.data[4];
-      new_data.last_msg_tick = osKernelGetTickCount();
-      osMutexAcquire(g_bms_mutex, osWaitForever);
-      g_bms_data.voltage = new_data.voltage;
-      g_bms_data.current = new_data.current;
-      g_bms_data.temperature = new_data.temperature;
-      g_bms_data.last_msg_tick = new_data.last_msg_tick;
-      g_bms_data.fault_flag &= ~0x10;
-      BMS_UpdateFault(&g_bms_data);
-      osMutexRelease(g_bms_mutex);
+
+      /* ===== ¡¾ÐÂÔö¡¿CAN IDÅÐ¶Ï·Ö·¢ ===== */
+      if (msg.id == UDS_REQ_ID)   /* 0x7E0 UDSÕï¶ÏÇëÇó */
+      {
+          #if UDS_DEBUG_PRINT
+        printf("[UDS] got req: %02X %02X %02X %02X %02X %02X %02X %02X\r\n",
+               msg.data[0], msg.data[1], msg.data[2], msg.data[3],
+               msg.data[4], msg.data[5], msg.data[6], msg.data[7]);
+          #endif
+        uint8_t res_data[8];
+        uint8_t res_len = UDS_ProcessRequest(msg.data, msg.len, res_data);
+          #if UDS_DEBUG_PRINT
+        printf("[UDS] res_len=%d, res: %02X %02X %02X %02X %02X %02X %02X %02X\r\n",
+               res_len, res_data[0], res_data[1], res_data[2], res_data[3],
+               res_data[4], res_data[5], res_data[6], res_data[7]);
+          #endif
+        if (res_len > 0U)
+        {
+          CanMsgTypeDef res_msg;
+          res_msg.id = UDS_RES_ID;
+          res_msg.len = res_len;
+          memcpy(res_msg.data, res_data, 8U);
+          int send_ret = can_send(&res_msg);
+            #if UDS_DEBUG_PRINT
+          printf("[UDS] can_send ret=%d\r\n", send_ret);
+            #endif
+        }
+      }
+      else   /* 0x18000501 BMSÊý¾ÝÖ¡£¬×ßÔ­Âß¼­ */
+      {
+        BmsData_t new_data;
+        new_data.voltage  = (uint16_t)(msg.data[0] | (msg.data[1] << 8));
+        new_data.current  = (int16_t)(msg.data[2] | (msg.data[3] << 8));
+        new_data.temperature = (int8_t)msg.data[4];
+        new_data.last_msg_tick = osKernelGetTickCount();
+        osMutexAcquire(g_bms_mutex, osWaitForever);
+        g_bms_data.voltage = new_data.voltage;
+        g_bms_data.current = new_data.current;
+        g_bms_data.temperature = new_data.temperature;
+        g_bms_data.last_msg_tick = new_data.last_msg_tick;
+        g_bms_data.fault_flag &= ~0x10;
+        BMS_UpdateFault(&g_bms_data);
+        osMutexRelease(g_bms_mutex);
+      }
+
     }
   }
   /* USER CODE END StartTask_BMS_Process */
