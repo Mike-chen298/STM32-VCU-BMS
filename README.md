@@ -15,15 +15,18 @@
 ## 硬件接线
 
 ### CAN总线（双板互联）
+
 VCU TJA1050 CANH ←→ C8T6 TJA1050 CANH
 VCU TJA1050 CANL ←→ C8T6 TJA1050 CANL
 VCU GND ←→ C8T6 GND （共地，必须接）
 
 ### 终端电阻规则
+
 - 2节点通信：两端各保留120Ω，共2个终端电阻并联=60Ω
 - 3节点及以上：仅物理总线两端节点保留120Ω，中间节点断开板载电阻
 
 ### TJA1050与MCU接线
+
 - MCU PA12(CAN_TX) → TJA1050 TXD（模块丝印"TX"）
 - TJA1050 RXD（模块丝印"RX"）→ MCU PA11(CAN_RX)
 
@@ -47,6 +50,7 @@ CAN时钟36MHz(APB1)，36M / (4 × 18) = 500Kbps
 | 0x000007E8 | VCU→诊断仪 | UDS诊断响应 | 事件触发 |
 
 ### BMS数据帧格式（0x18000501，小端）
+
 | 字节 | 含义 | 类型 | 单位 |
 |---|---|---|---|
 | data[0-1] | 电压 | uint16_t | 0.1V |
@@ -57,31 +61,38 @@ CAN时钟36MHz(APB1)，36M / (4 × 18) = 500Kbps
 ## 软件架构
 
 ### 分层设计
+
 ┌─────────────────────────────────┐
 │ App 层：freertos.c               │
 │  任务调度、业务流程、CAN ID 分发  │
 ├─────────────────────────────────┤
 │ Service 层：                     │
-│  bms_app.c  BMS 业务 + 状态机      │
+│  bms_app.c  BMS 业务 + 状态机    │
 │  uds.c      UDS 诊断协议栈       │
-│  can_driver.c Bus-Off 恢复       │
 ├─────────────────────────────────┤
 │ Driver 层：                      │
-│  can_driver.c CAN 收发驱动       │
+│  can_driver.c CAN 收发 + Bus-Off恢复 │
 │  oled.c       OLED 显示驱动      │
 │  HAL 库        STM32 外设抽象     │
 └─────────────────────────────────┘
 
 ### FreeRTOS任务（VCU）
+
 | 任务 | 优先级 | 周期 | 说明 |
 |---|---|---|---|
 | Task_Monitor | Normal | 500ms | CAN初始化、Bus-Off检测、OLED刷新、通信超时判断、UDS会话超时 |
-| Task_RecvMsg | Normal | 2ms | 串口环形缓冲解析（备用通道） |
+| Task_RecvMsg | Normal | 2ms | PC串口模拟帧解析（AA55格式→CanMsgTypeDef入队），用于PC端模拟诊断仪发UDS请求 |
 | Task_BMS_Process | High | 事件驱动 | 从队列取CAN帧，BMS数据解析/故障检测，UDS请求分发 |
 | Task_Resp | Normal | 1s | 串口打印BMS状态与故障告警 |
 | defaultTask | Normal | 1s | 空任务（保留） |
 
+### 任务间通信
+
+- **消息队列**：MsgQueueHandle，32元素×16字节，CAN接收中断/串口解析 → Task_BMS_Process，解耦数据接收与业务处理
+- **互斥锁**：g_bms_mutex，保护全局g_bms_data多任务读写，防止竞态和数据撕裂
+
 ## BMS状态机
+
 上电 → INIT（未收到数据）
 ↓ 收到第一帧 BMS 数据
 NORMAL（正常运行）
@@ -92,6 +103,8 @@ NORMAL                NORMAL
 
 任意状态 → 通信超时 3 秒 → SLEEP（休眠）
 SLEEP → 通信恢复 → NORMAL
+
+状态判断优先级：INIT > SLEEP > FAULT > WARNING > NORMAL（通过if-return判断顺序实现）
 
 ## 故障检测
 
@@ -104,19 +117,21 @@ SLEEP → 通信恢复 → NORMAL
 | 通信超时 | >3s无数据 | 0x10 | 立即置位 |
 
 故障防抖：连续3帧异常才置位故障，连续3帧正常才清除，过滤总线毛刺。
+支持多故障并发：fault_flag位域可同时置位多个故障位（如过压+过温=0x05）。
 
 ## Bus-Off软件恢复
 
 - 检测方式：直接读 `hcan.Instance->ESR & CAN_ESR_BOFF` 寄存器位（老版HAL无HAL_CAN_STATE_BUS_OFF枚举）
 - 恢复流程：HAL_CAN_Stop → 重配过滤器 → HAL_CAN_Start → 重新激活接收中断
 - 检测周期：VCU 500ms，C8T6 100ms
-- 硬件机制：重启后CAN控制器自动等待128次11个隐性位后退出Bus-Off
+- 硬件机制：重启后CAN控制器自动等待128次11个连续隐性位后退出Bus-Off
 
 ## UDS诊断子集
 
 实现ISO 14229精简版UDS诊断协议栈（单帧传输，未实现ISO-TP多帧）。
 
 ### 支持的服务
+
 | SID | 服务 | 说明 |
 |---|---|---|
 | 0x10 | 诊断会话控制 | 默认会话(0x01)/扩展会话(0x03)，5秒超时自动退回默认 |
@@ -124,6 +139,7 @@ SLEEP → 通信恢复 → NORMAL
 | 0x2E | 按DID写数据 | 仅扩展会话允许，默认会话拒绝(NRC 0x7E) |
 
 ### DID定义
+
 | DID | 含义 | 类型 | 字节序 | 单位 | 读写 |
 |---|---|---|---|---|---|
 | 0xF190 | 电池电压 | uint16_t | 小端 | 0.1V | 读/写 |
@@ -132,6 +148,7 @@ SLEEP → 通信恢复 → NORMAL
 | 0xF193 | 故障码 | uint8_t | - | - | 只读 |
 
 ### NRC否定响应码
+
 | NRC | 含义 |
 |---|---|
 | 0x11 | 服务不支持 |
@@ -141,6 +158,7 @@ SLEEP → 通信恢复 → NORMAL
 | 0x7E | 子功能在当前会话不支持 |
 
 ### 字节序说明
+
 - DID字段：大端（高字节在前），遵循UDS行业惯例
 - 数据值：小端（低字节在前），与BMS数据帧保持一致
 - 每个DID的数据类型、字节序、单位在DID定义表中明确约定
@@ -154,6 +172,7 @@ SLEEP → 通信恢复 → NORMAL
 - 版本控制：Git
 
 ## 工程结构
+
 STM32_VCU/          # VCU 工程（ZET6）
 ├── Core/
 │   ├── Inc/
@@ -168,8 +187,8 @@ STM32_VCU/          # VCU 工程（ZET6）
 │       └── freertos.c     # 任务与业务流程
 STM32_BMS/          # BMS 模拟器工程（C8T6）
 └── Core/Src/
-├── can_driver.c   # CAN 发送 + Bus-Off 恢复
-└── freertos.c     # BMS 数据模拟发送
+    ├── can_driver.c   # CAN 发送 + Bus-Off 恢复
+    └── freertos.c     # BMS 数据模拟发送
 
 ## 项目阶段
 
@@ -181,4 +200,3 @@ STM32_BMS/          # BMS 模拟器工程（C8T6）
 - [x] 阶段5：故障防抖（3帧计数器）
 - [x] 阶段6：Bus-Off软件恢复 + UDS诊断子集
 - [x] 阶段7：BMS状态机 + 项目收尾
-
